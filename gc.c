@@ -1130,9 +1130,28 @@ heap_add_pages(rb_objspace_t *objspace, rb_heap_t *heap, size_t add)
     heap_pages_increment = 0;
 }
 
+static size_t
+objspace_live_num(rb_objspace_t *objspace)
+{
+    return objspace->profile.total_allocated_object_num - objspace->profile.total_freed_object_num;
+}
+
+static size_t
+objspace_limit_num(rb_objspace_t *objspace)
+{
+    return heap_eden->limit + heap_tomb->limit;
+}
+
+static size_t
+objspace_free_num(rb_objspace_t *objspace)
+{
+    return objspace_limit_num(objspace) - (objspace_live_num(objspace) - heap_pages_final_num);
+}
+
 static void
 heap_set_increment(rb_objspace_t *objspace)
 {
+    int min_increment;
     size_t used = heap_pages_used - heap_tomb->used;
     size_t next_used_limit = (size_t)(used * gc_params.growth_factor);
     if (gc_params.growth_max > 0) {
@@ -1141,6 +1160,12 @@ heap_set_increment(rb_objspace_t *objspace)
     }
     if (next_used_limit == heap_pages_used) next_used_limit++;
     heap_pages_increment = next_used_limit - used;
+
+    min_increment = (gc_params.heap_min_free_slots - ((heap_pages_length - heap_pages_used) * HEAP_OBJ_LIMIT) - objspace_free_num(objspace)) / HEAP_OBJ_LIMIT;
+    if (min_increment > (int)heap_pages_increment) {
+        heap_pages_increment = (size_t)min_increment;
+    }
+
     heap_pages_expand_sorted(objspace);
 
     if (0) fprintf(stderr, "heap_set_increment: heap_pages_length: %d, heap_pages_used: %d, heap_pages_increment: %d, next_used_limit: %d\n",
@@ -2615,23 +2640,6 @@ lazy_sweep_enable(void)
     return Qnil;
 }
 
-static size_t
-objspace_live_num(rb_objspace_t *objspace)
-{
-    return objspace->profile.total_allocated_object_num - objspace->profile.total_freed_object_num;
-}
-
-static size_t
-objspace_limit_num(rb_objspace_t *objspace)
-{
-    return heap_eden->limit + heap_tomb->limit;
-}
-
-static size_t
-objspace_free_num(rb_objspace_t *objspace)
-{
-    return objspace_limit_num(objspace) - (objspace_live_num(objspace) - heap_pages_final_num);
-}
 
 static void
 gc_setup_mark_bits(struct heap_page *page)
