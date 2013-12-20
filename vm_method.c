@@ -4,8 +4,11 @@
 
 #define GLOBAL_METHOD_CACHE_SIZE 0x800
 #define GLOBAL_METHOD_CACHE_MASK 0x7ff
-#define GLOBAL_METHOD_CACHE_KEY(c,m) ((((c)>>3)^(m))&GLOBAL_METHOD_CACHE_MASK)
-#define GLOBAL_METHOD_CACHE(c,m) (global_method_cache + GLOBAL_METHOD_CACHE_KEY(c,m))
+
+#define GLOBAL_METHOD_CACHE_BUCKET_SIZE 4
+#define GLOBAL_METHOD_CACHE_KEY(c,m) ((((c)>>2)^(m))&GLOBAL_METHOD_CACHE_MASK)
+#define GLOBAL_METHOD_CACHE_KEY2(c,m) ((((c)>>4)^(m))&GLOBAL_METHOD_CACHE_MASK)
+
 #include "method.h"
 
 #define NOEX_NOREDEF 0
@@ -30,9 +33,14 @@ struct cache_entry {
     ID mid;
     rb_method_entry_t* me;
     VALUE defined_class;
+    unsigned int alt_index;
 };
 
-static struct cache_entry global_method_cache[GLOBAL_METHOD_CACHE_SIZE];
+static int cache_misses = 0;
+static int cache_hits = 0;
+static int failed_swaps = 0;
+
+static struct cache_entry global_method_cache[GLOBAL_METHOD_CACHE_SIZE * GLOBAL_METHOD_CACHE_BUCKET_SIZE];
 #define ruby_running (GET_VM()->running)
 /* int ruby_running = 0; */
 
@@ -547,6 +555,101 @@ rb_method_entry_at(VALUE klass, ID id)
     return lookup_method_table(klass, id);
 }
 
+
+/* internal use */
+rb_method_entry_t *
+rb_method_entry_get_without_cache2(VALUE klass, ID id,
+				  VALUE *defined_class_ptr,
+				  int key,
+				  int alt_key)
+{
+    VALUE defined_class;
+    rb_method_entry_t *me = search_method(klass, id, &defined_class);
+
+    cache_misses++;
+
+    if (me && RB_TYPE_P(me->klass, T_ICLASS))
+	defined_class = me->klass;
+
+    if (ruby_running) {
+	struct cache_entry swap,temp;
+	struct cache_entry *ent = global_method_cache + key * GLOBAL_METHOD_CACHE_BUCKET_SIZE;
+
+	unsigned int index, alt_index;
+	int max_swaps = 0;
+
+	if(ent->method_state==GET_GLOBAL_METHOD_STATE() && ent->alt_index < GLOBAL_METHOD_CACHE_SIZE) {
+	    swap = *ent;
+	    index = key;
+	    alt_index = swap.alt_index;
+	    max_swaps = 50;
+	}
+
+	ent->class_serial = RCLASS_EXT(klass)->class_serial;
+	ent->method_state = GET_GLOBAL_METHOD_STATE();
+	ent->defined_class = defined_class;
+	ent->alt_index = alt_key;
+	ent->mid = id;
+
+	if (UNDEFINED_METHOD_ENTRY_P(me)) {
+	    ent->me = 0;
+	    me = 0;
+	}
+	else {
+	    ent->me = me;
+	}
+
+	while(max_swaps > 0){
+	    int i;
+
+	    for(i=0;i<GLOBAL_METHOD_CACHE_BUCKET_SIZE;i++) {
+		ent = global_method_cache + index * GLOBAL_METHOD_CACHE_BUCKET_SIZE + i;
+		if(ent->method_state != GET_GLOBAL_METHOD_STATE() || ent->alt_index >= GLOBAL_METHOD_CACHE_SIZE){
+		    *ent = swap;
+		    swap.alt_index = GLOBAL_METHOD_CACHE_SIZE+1;
+		    break;
+		}
+
+		ent = global_method_cache + alt_index * GLOBAL_METHOD_CACHE_BUCKET_SIZE + i;
+		if(ent->method_state != GET_GLOBAL_METHOD_STATE() || ent->alt_index >= GLOBAL_METHOD_CACHE_SIZE){
+		    swap.alt_index = index;
+		    *ent = swap;
+		    swap.alt_index = GLOBAL_METHOD_CACHE_SIZE+1;
+		    break;
+		}
+	    }
+
+	    if(swap.alt_index >= GLOBAL_METHOD_CACHE_SIZE)
+		break;
+
+
+	    /* evict random */
+
+	    ent = global_method_cache + alt_index * GLOBAL_METHOD_CACHE_BUCKET_SIZE + ( rand() % GLOBAL_METHOD_CACHE_BUCKET_SIZE );
+	    temp = *ent;
+	    swap.alt_index = index;
+	    index = alt_index;
+
+	    break;
+	    *ent = swap;
+	    swap = temp;
+	    alt_index = swap.alt_index;
+
+	    max_swaps--;
+
+	    if(max_swaps==0) {
+		failed_swaps++;
+	    }
+	}
+
+
+    }
+
+    if (defined_class_ptr)
+	*defined_class_ptr = defined_class;
+    return me;
+}
+
 /*
  * search method entry without the method cache.
  *
@@ -557,32 +660,15 @@ rb_method_entry_t *
 rb_method_entry_get_without_cache(VALUE klass, ID id,
 				  VALUE *defined_class_ptr)
 {
-    VALUE defined_class;
-    rb_method_entry_t *me = search_method(klass, id, &defined_class);
+    unsigned int key, alt_key;
 
-    if (me && RB_TYPE_P(me->klass, T_ICLASS))
-	defined_class = me->klass;
-
-    if (ruby_running) {
-	struct cache_entry *ent;
-	ent = GLOBAL_METHOD_CACHE(klass, id);
-	ent->class_serial = RCLASS_EXT(klass)->class_serial;
-	ent->method_state = GET_GLOBAL_METHOD_STATE();
-	ent->defined_class = defined_class;
-	ent->mid = id;
-
-	if (UNDEFINED_METHOD_ENTRY_P(me)) {
-	    ent->me = 0;
-	    me = 0;
-	}
-	else {
-	    ent->me = me;
-	}
+    key = GLOBAL_METHOD_CACHE_KEY(klass, id);
+    alt_key = GLOBAL_METHOD_CACHE_KEY2(klass, id);
+    if(alt_key == key) {
+	alt_key = (alt_key + 7) % GLOBAL_METHOD_CACHE_SIZE;
     }
 
-    if (defined_class_ptr)
-	*defined_class_ptr = defined_class;
-    return me;
+    return rb_method_entry_get_without_cache2(klass, id, defined_class_ptr, key, alt_key);
 }
 
 #if VM_DEBUG_VERIFY_METHOD_CACHE
@@ -603,21 +689,52 @@ rb_method_entry_t *
 rb_method_entry(VALUE klass, ID id, VALUE *defined_class_ptr)
 {
 #if OPT_GLOBAL_METHOD_CACHE
+    int key, alt_key;
     struct cache_entry *ent;
-    ent = GLOBAL_METHOD_CACHE(klass, id);
-    if (ent->method_state == GET_GLOBAL_METHOD_STATE() &&
-	ent->class_serial == RCLASS_EXT(klass)->class_serial &&
-	ent->mid == id) {
-	if (defined_class_ptr)
-	    *defined_class_ptr = ent->defined_class;
-#if VM_DEBUG_VERIFY_METHOD_CACHE
-	verify_method_cache(klass, id, ent->defined_class, ent->me);
-#endif
-	return ent->me;
-    }
-#endif
+    int i;
+    rb_serial_t class_serial = RCLASS_EXT(klass)->class_serial;
 
-    return rb_method_entry_get_without_cache(klass, id, defined_class_ptr);
+    key = GLOBAL_METHOD_CACHE_KEY(klass, id);
+    /* push inside */
+    alt_key = GLOBAL_METHOD_CACHE_KEY2(klass, id);
+    if(alt_key == key) {
+	alt_key = (alt_key + 7) % GLOBAL_METHOD_CACHE_SIZE;
+    }
+
+    for(i=0; i<GLOBAL_METHOD_CACHE_BUCKET_SIZE; i++) {
+
+	ent = global_method_cache + key * GLOBAL_METHOD_CACHE_BUCKET_SIZE + i;
+
+	if (ent->method_state == GET_GLOBAL_METHOD_STATE() &&
+	    ent->class_serial == class_serial  &&
+	    ent->mid == id) {
+	    if (defined_class_ptr)
+		*defined_class_ptr = ent->defined_class;
+#if VM_DEBUG_VERIFY_METHOD_CACHE
+	    verify_method_cache(klass, id, ent->defined_class, ent->me);
+#endif
+	    cache_hits++;
+	    return ent->me;
+	}
+
+	ent = global_method_cache + alt_key * GLOBAL_METHOD_CACHE_BUCKET_SIZE + i;
+
+	if (ent->method_state == GET_GLOBAL_METHOD_STATE() &&
+	    ent->class_serial == class_serial &&
+	    ent->mid == id) {
+	    if (defined_class_ptr)
+		*defined_class_ptr = ent->defined_class;
+#if VM_DEBUG_VERIFY_METHOD_CACHE
+	    verify_method_cache(klass, id, ent->defined_class, ent->me);
+#endif
+	    cache_hits++;
+	    return ent->me;
+	}
+#endif
+    }
+
+
+    return rb_method_entry_get_without_cache2(klass, id, defined_class_ptr, key, alt_key);
 }
 
 static rb_method_entry_t *
@@ -1690,6 +1807,30 @@ obj_respond_to_missing(VALUE obj, VALUE mid, VALUE priv)
     return Qfalse;
 }
 
+VALUE rb_cache_misses(VALUE module) {
+    return INT2FIX(cache_misses);
+}
+
+VALUE rb_cache_hits(VALUE module) {
+    return INT2FIX(cache_hits);
+}
+
+VALUE rb_failed_swaps(VALUE module) {
+    return INT2FIX(failed_swaps);
+}
+
+VALUE rb_cache_empty_slots(VALUE module) {
+    int empty_slots=0,i;
+    struct cache_entry* ent;
+
+    for(i=0; i<GLOBAL_METHOD_CACHE_SIZE; i++){
+	ent = global_method_cache+i;
+	if(ent->method_state != GET_GLOBAL_METHOD_STATE() || ent->alt_index >= GLOBAL_METHOD_CACHE_SIZE)
+	    empty_slots++;
+    }
+    return INT2FIX(empty_slots);
+}
+
 void
 Init_eval_method(void)
 {
@@ -1698,6 +1839,11 @@ Init_eval_method(void)
 
     rb_define_method(rb_mKernel, "respond_to?", obj_respond_to, -1);
     rb_define_method(rb_mKernel, "respond_to_missing?", obj_respond_to_missing, 2);
+
+    rb_define_method(rb_mKernel, "cache_misses", rb_cache_misses, 0);
+    rb_define_method(rb_mKernel, "cache_hits", rb_cache_hits, 0);
+    rb_define_method(rb_mKernel, "failed_swaps", rb_failed_swaps, 0);
+    rb_define_method(rb_mKernel, "cache_empty_slots", rb_cache_empty_slots, 0);
 
     rb_define_private_method(rb_cModule, "remove_method", rb_mod_remove_method, -1);
     rb_define_private_method(rb_cModule, "undef_method", rb_mod_undef_method, -1);
