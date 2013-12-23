@@ -2,6 +2,8 @@
  * This file is included by vm.c
  */
 
+#include <sys/time.h>
+
 #ifndef GLOBAL_METHOD_CACHE_SIZE
 #define GLOBAL_METHOD_CACHE_SIZE 0x800
 #endif
@@ -33,6 +35,8 @@ static void rb_vm_check_redefinition_opt_method(const rb_method_entry_t *me, VAL
 #define undefined           idMethod_undefined
 #define singleton_undefined idSingleton_method_undefined
 #define attached            id__attached__
+
+long cache_hits=0, cache_misses=0, cache_miss_time=0;
 
 struct cache_entry {
     rb_serial_t method_state;
@@ -568,7 +572,15 @@ rb_method_entry_get_without_cache(VALUE klass, ID id,
 				  VALUE *defined_class_ptr)
 {
     VALUE defined_class;
-    rb_method_entry_t *me = search_method(klass, id, &defined_class);
+    struct timeval tv,tv2,res;
+    rb_method_entry_t *me;
+
+    cache_misses++;
+
+    gettimeofday(&tv, NULL);
+    me = search_method(klass, id, &defined_class);
+
+
 
     if (me && RB_TYPE_P(me->klass, T_ICLASS))
 	defined_class = me->klass;
@@ -592,6 +604,12 @@ rb_method_entry_get_without_cache(VALUE klass, ID id,
 
     if (defined_class_ptr)
 	*defined_class_ptr = defined_class;
+
+    gettimeofday(&tv2, NULL);
+    timersub(&tv2, &tv, &res);
+
+    cache_miss_time += (long)(res.tv_sec*1000000 + res.tv_usec);
+
     return me;
 }
 
@@ -623,6 +641,7 @@ rb_method_entry(VALUE klass, ID id, VALUE *defined_class_ptr)
 #if VM_DEBUG_VERIFY_METHOD_CACHE
 	verify_method_cache(klass, id, ent->defined_class, ent->me);
 #endif
+	cache_hits++;
 	return ent->me;
     }
 #endif
@@ -1700,6 +1719,39 @@ obj_respond_to_missing(VALUE obj, VALUE mid, VALUE priv)
     return Qfalse;
 }
 
+static VALUE
+rb_cache_hits(VALUE klass){
+    return INT2FIX(cache_hits);
+}
+
+static VALUE
+rb_cache_misses(VALUE klass){
+    return INT2FIX(cache_misses);
+}
+
+static VALUE
+rb_cache_miss_time(VALUE klass){
+    return INT2FIX(cache_miss_time);
+}
+
+static VALUE
+rb_cache_size(VALUE klass){
+    return INT2FIX(GLOBAL_METHOD_CACHE_SIZE);
+}
+
+static VALUE
+rb_cache_entries(VALUE klass){
+    int total=0, i;
+    struct cache_entry* ent;
+    for(i=0; i<GLOBAL_METHOD_CACHE_SIZE; i++) {
+	ent = global_method_cache + i;
+	if(ent->method_state == GET_GLOBAL_METHOD_STATE())
+	    total++;
+    }
+
+    return INT2FIX(total);
+}
+
 void
 Init_eval_method(void)
 {
@@ -1708,6 +1760,12 @@ Init_eval_method(void)
 
     rb_define_method(rb_mKernel, "respond_to?", obj_respond_to, -1);
     rb_define_method(rb_mKernel, "respond_to_missing?", obj_respond_to_missing, 2);
+
+    rb_define_singleton_method(rb_mKernel, "cache_hits", rb_cache_hits, 0);
+    rb_define_singleton_method(rb_mKernel, "cache_misses", rb_cache_misses, 0);
+    rb_define_singleton_method(rb_mKernel, "cache_miss_time", rb_cache_miss_time, 0);
+    rb_define_singleton_method(rb_mKernel, "cache_entries", rb_cache_entries, 0);
+    rb_define_singleton_method(rb_mKernel, "cache_size", rb_cache_size, 0);
 
     rb_define_private_method(rb_cModule, "remove_method", rb_mod_remove_method, -1);
     rb_define_private_method(rb_cModule, "undef_method", rb_mod_undef_method, -1);
