@@ -110,11 +110,11 @@ rb_gc_guarded_ptr(volatile VALUE *ptr)
 #define GC_HEAP_GROWTH_MAX_SLOTS 0 /* 0 is disable */
 #endif
 #ifndef GC_HEAP_OLDOBJECT_LIMIT_FACTOR
-#define GC_HEAP_OLDOBJECT_LIMIT_FACTOR 2.0
+#define GC_HEAP_OLDOBJECT_LIMIT_FACTOR 1.3
 #endif
 
 #ifndef GC_MALLOC_LIMIT_MIN
-#define GC_MALLOC_LIMIT_MIN (16 * 1024 * 1024 /* 16MB */)
+#define GC_MALLOC_LIMIT_MIN (8 * 1024 * 1024 /* 8MB */)
 #endif
 #ifndef GC_MALLOC_LIMIT_MAX
 #define GC_MALLOC_LIMIT_MAX (32 * 1024 * 1024 /* 32MB */)
@@ -2926,7 +2926,7 @@ gc_before_sweep(rb_objspace_t *objspace)
 	    malloc_limit = (size_t)(inc * gc_params.malloc_limit_growth_factor);
 	    if (gc_params.malloc_limit_max > 0 && /* ignore max-check if 0 */
 		malloc_limit > gc_params.malloc_limit_max) {
-		malloc_limit = inc;
+		malloc_limit = gc_params.malloc_limit_max;
 	    }
 	}
 	else {
