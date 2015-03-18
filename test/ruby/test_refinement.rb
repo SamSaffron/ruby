@@ -1217,6 +1217,24 @@ class TestRefinement < Test::Unit::TestCase
     end;
   end
 
+  def test_singleton_method_should_not_use_refinements
+    assert_separately([], <<-"end;")
+    bug10744 = '[ruby-core:67603] [Bug #10744]'
+
+    class C
+    end
+
+    module RefinementBug
+      refine C.singleton_class do
+        def foo
+        end
+      end
+    end
+
+    assert_raise(NameError, bug10744) { C.singleton_method(:foo) }
+    end;
+  end
+
   def test_refined_method_defined
     assert_separately([], <<-"end;")
     bug10753 = '[ruby-core:67656] [Bug #10753]'
@@ -1290,6 +1308,111 @@ class TestRefinement < Test::Unit::TestCase
     assert_equal(false, c.private_method_defined?(:undefined_refined_protected), bug10753)
     assert_equal(false, c.private_method_defined?(:undefined_refined_private), bug10753)
     end;
+  end
+
+  def test_remove_refined_method
+    assert_separately([], <<-"end;")
+    bug10765 = '[ruby-core:67722] [Bug #10765]'
+
+    class C
+      def foo
+        "C#foo"
+      end
+    end
+
+    module RefinementBug
+      refine C do
+        def foo
+          "RefinementBug#foo"
+        end
+      end
+    end
+
+    using RefinementBug
+
+    class C
+      remove_method :foo
+    end
+
+    assert_equal("RefinementBug#foo", C.new.foo, bug10765)
+    end;
+  end
+
+  def test_remove_undefined_refined_method
+    assert_separately([], <<-"end;")
+    bug10765 = '[ruby-core:67722] [Bug #10765]'
+
+    class C
+    end
+
+    module RefinementBug
+      refine C do
+        def foo
+        end
+      end
+    end
+
+    using RefinementBug
+
+    assert_raise(NameError, bug10765) {
+      class C
+        remove_method :foo
+      end
+    }
+    end;
+  end
+
+  module NotIncludeSuperclassMethod
+    class X
+      def foo
+      end
+    end
+
+    class Y < X
+    end
+
+    module Bar
+      refine Y do
+        def foo
+        end
+      end
+    end
+  end
+
+  def test_instance_methods_not_include_superclass_method
+    bug10826 = '[ruby-dev:48854] [Bug #10826]'
+    assert_not_include(NotIncludeSuperclassMethod::Y.instance_methods(false),
+                       :foo, bug10826)
+    assert_include(NotIncludeSuperclassMethod::Y.instance_methods(true),
+                   :foo, bug10826)
+  end
+
+  def test_call_refined_method_in_duplicate_module
+    bug10885 = '[ruby-dev:48878]'
+    assert_in_out_err([], <<-INPUT, [], [], bug10885)
+      module M
+        refine Object do
+          def raise
+            # do nothing
+          end
+        end
+
+        class << self
+          using M
+          def m0
+            raise
+          end
+        end
+
+        using M
+        def M.m1
+          raise
+        end
+      end
+
+      M.dup.m0
+      M.dup.m1
+    INPUT
   end
 
   private

@@ -1,3 +1,267 @@
+Thu Feb 26 15:48:41 2015  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* ext/win32/Win32API.rb (initialize): accept both a string and an array
+	  for the arguments of the imported function.
+	  reported by Aaron Stone [ruby-core:68208] [Bug #10876] [Fixes GH-835]
+
+Wed Feb 25 15:36:26 2015  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* tool/merger.rb: support 2.1+ versioning scheme.
+
+Tue Feb 24 17:41:27 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* time.c (time_zone_name): should be US-ASCII only if all 7-bits,
+	  otherwise locale encoding.  [ruby-core:68230] [Bug #10887]
+
+Tue Feb 24 17:41:27 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* time.c (time_zone_name): should be US-ASCII only if all 7-bits,
+	  otherwise locale encoding.  [ruby-core:68230] [Bug #10887]
+
+Tue Feb 24 17:41:27 2015  Benoit Daloze  <eregontp@gmail.com>
+
+	* time.c: Zone encoding should be US-ASCII if all 7-bits. Fix r46907.
+
+	* test/ruby/test_time.rb, test/ruby/test_time_tz.rb: Update tests.
+
+Tue Feb 24 16:37:26 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* string.c (chompped_length): enable smart chomp for all non-dummy
+	  encoding strings, not only default_rs.
+	  [ruby-core:68258] [Bug #10893]
+
+Tue Feb 24 16:31:53 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* string.c (rb_str_split_m): raise ArgumentError at broken string
+	  not RegexpError, as Regexp is not involved in.
+	  [ruby-core:68229] [Bug #10886]
+
+Tue Feb 24 14:00:46 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* gc.c (rb_objspace_call_finalizer): control GC execution during
+	  force firnalizations at the end of interpreter process.
+	  [Bug #10768]
+
+	  1) Prohibit incremental GC while running Ruby-level finalizers
+	     to avoid any danger.
+	  2) Prohibit GC while invoking T_DATA/T_FILE data structure
+	     because these operations break object relations consistency.
+
+	  This patch can introduce another memory consuming issue because
+	  Ruby-level finalizers can run after (2), GC is disabled.
+	  However, basically object consistency was broken at (2) as I
+	  described above. So that running Ruby-level finalizers contains
+	  danger originally. Because of this point, I need to suggest to
+	  remove these 3 lines (invoking remaining finalizers). And add a
+	  rule to add that finalizers should not add new finalizers, or
+	  say there is no guarantee to invoke finalizers that added by
+	  another finalizer.
+
+Tue Feb 24 14:00:46 2015  Aman Gupta <ruby@tmm1.net>
+
+	* gc.c (rb_objspace_free): cause rb_bug if lazy sweep is in progress
+	  during rb_objspace_free. Adds extra protection for r46340.
+	  Patch by Vicent Marti. [Bug #10768] [ruby-core:67734]
+	* gc.c (rb_objspace_call_finalizer): Ensure GC is completed after
+	  finalizers have run. We already call gc_rest() before invoking
+	  finalizers, but finalizer can allocate new objects and start new GC
+	  cycle, so we call gc_rest() again after finalizers are complete.
+
+Tue Feb 24 10:30:59 2015  Kazuki Tsujimoto  <kazuki@callcc.net>
+
+	* vm_insnhelper.c (rb_vm_rewrite_cref_stack): copy nd_refinements
+	  of original crefs. It fixes segmentation fault when calling
+	  refined method in duplicate module. [ruby-dev:48878] [Bug #10885]
+
+	* vm_core.h, class.c: change accordingly.
+
+	* test/ruby/test_refinement.rb: add a test for above.
+
+Sun Feb 22 21:20:37 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* re.c (match_aref): RMatch::regexp is Qnil after matching by a
+	  string since r45451.  [ruby-core:68209] [Bug #10877]
+
+Sun Feb 22 17:11:25 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* Makefile.in (probes.stamp): rebuild dtrace dependent objects
+	  only when `dtrace -G` modifies its input files.
+
+Sun Feb 22 17:11:25 2015  Naohisa Goto  <ngotogenome@gmail.com>
+
+	* common.mk (ruby-glommed.o): dependency on $(OBJ) should be written
+	  in common.mk (in which OBJ is defined) because of Makefile include
+	  and parse order. This partly reverts r49419.
+	  [ruby-dev:48849] [Bug #10808]
+
+	* Makefile.in (ruby-glommed.o): ditto.
+
+	* Makefile.in (ruby-glommed.o): remove excess $(DTRACE_OBJ) because
+	  it is included in $(OBJS) since r49451.
+
+	* Makefile.in (probes.o): should depend on $(DTRACE_DEPENDENT_OBJS)
+
+Sun Feb 22 02:16:40 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* file.c (rb_file_identical_p): fix handle leak, ensure to close
+	  the handle of the first argument.
+
+Sat Feb 21 13:48:11 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* win32/win32.c (different_device_p): compare by volume serial
+	  numbers, not by path names.  [ruby-core:68162] [Bug #10865]
+
+Sat Feb 21 13:48:11 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* win32/win32.c (wrename): return EXDEV if moving a directory to
+	  another drive, since MoveFileExW does not set proper error code.
+	  [ruby-core:68162] [Bug #10865]
+
+Sat Feb 21 12:46:51 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* win32/file.c (rb_file_expand_path_internal): neither the drive
+	  of base directory nor the current drive are involved in the
+	  result if different than the drive of path.
+	  [ruby-core:68130] [Bug #10858]
+
+Sat Feb 21 12:46:51 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* win32/file.c (rb_file_expand_path_internal): do not make invalid
+	  (or ADS) path if the path has a drive letter, the result also
+	  should have be under it.  [ruby-core:68130] [Bug #10858]
+
+Sat Feb 21 12:45:54 2015  Matt Hoyle  <matt@deployable.co>
+
+	* ext/bigdecimal/bigdecimal.c (VpSetPTR): fix a typo, 'expoennt'
+	  to 'exponent'.  [ruby-core:67980] [Bug #10823] [Fix GH-825]
+
+Fri Feb 20 17:47:20 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* vm_core.h (rb_call_info_kw_arg_struct): make keywords a symbols
+	  list to get rid of inadvertent creation by variable keyword
+	  arguments.  [ruby-core:68031] [Bug #10831]
+
+Fri Feb 20 15:08:17 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* dir.c (has_magic): always get long path name on Windows even if
+	  no tilde is there.  [ruby-core:68011] [Bug #10819]
+
+	* dir.c (replace_real_basename): FindFirstFile ignore redirection
+	  character, check if exists before call it.  cf. [Bug #8597]
+
+Fri Feb 20 15:08:17 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* dir.c (glob_helper): obtain real name with FindFirstFile API
+	  instead of matchin all entries, on Windows.
+	  [ruby-core:67954] [Bug #10819]
+
+Fri Feb 20 14:32:14 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* dir.c (dir_initialize): workaround of opendir failure at symlink
+	  directories on Windows via CIFS.
+
+Thu Feb 19 17:05:47 2015  Shugo Maeda  <shugo@ruby-lang.org>
+
+	* class.c (rb_obj_singleton_methods): should use RTEST() to convert
+	  VALUE to int.
+
+Thu Feb 19 16:14:04 2015  Shugo Maeda  <shugo@ruby-lang.org>
+
+	* class.c (method_entry_i, class_instance_method_list,
+	  rb_obj_singleton_methods): should not include methods of
+	  superclasses if recur is false. [ruby-dev:48854] [Bug #10826]
+
+Thu Feb 19 16:14:04 2015  Shugo Maeda  <shugo@ruby-lang.org>
+
+	* vm_method.c (remove_method): When remove refined
+	  method, raise a NameError if the method is not
+	  defined in refined class.
+
+	  But if the method is defined in refined class,
+	  it should keep refined method and remove original
+	  method.
+
+	  Patch by Seiei Higa. [ruby-core:67722] [Bug #10765]
+
+Thu Feb 19 16:07:03 2015  Seiei Higa  <hanachin@gmail.com>
+
+	* proc.c (rb_obj_singleton_method): Kernel#singleton_method should
+	  not use refinements, as well as Kernel#method.
+	  [ruby-core:67603] [Bug #10744]
+
+Thu Feb 19 15:32:26 2015  Dave Stevens  <dave@crowdlab.com>
+
+	* string.c (str_make_independent_expand): terminate String when
+	  moved from heap to embedded.  [Fix GH-821].
+
+Thu Feb 19 13:35:21 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* ext/sdbm/_sdbm.c: include ruby/ruby.h for PRIdPTRDIFF when a
+	  macro `DEBUG` is defined.  based on the patch by Owen Rodley in
+	  [ruby-core:67987]. [Bug #10825]
+
+Tue Feb 17 18:57:13 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* lib/resolv.rb (Resolv::DNS::Resource#==, #hash): elements
+	  returned by Kernel#instance_variables are Symbols now.
+	  [ruby-core:68128] [Bug #10857]
+
+Tue Feb 17 15:39:01 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* ext/win32/lib/win32/registry.rb (Win32::Registry::API): use wide
+	  versions of RegDeleteValue and RegDeleteKey.
+	  [ruby-core:67958] [Bug #10820]
+
+Tue Feb 17 11:50:06 2015  Yusuke Endoh  <mame@tsg.ne.jp>
+
+	* string.c (str_discard): does not free for STR_NOFREE string.
+	  [Bug #10853][ruby-core:68110]
+
+	* bootstraptest/test_string.rb: test for above.
+
+Sun Feb 15 13:15:46 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* ext/socket/getaddrinfo.c (get_addr): reject too long hostname to
+	  get rid of GHOST vulnerability on very old platforms.
+
+	* ext/socket/raddrinfo.c (make_hostent_internal): ditto, paranoic
+	  check for the canonnical name.
+
+Sat Feb 14 13:27:41 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* vm_eval.c (send_internal), vm_insnhelper.c (vm_call_opt_send):
+	  convert String method name into a Symbol, as method_missing
+	  method expects its first argument to be a Symbol.  [Bug #10828]
+
+	* vm_insnhelper.c (ci_missing_reason): return the reason of method
+	  missing in call info.
+
+	* vm_insnhelper.c (vm_call_opt_send): re-apply r49500 with the
+	  proper missing reason.  [Bug #10828]
+
+Sat Feb 14 13:27:41 2015  Marc-Andre Lafortune  <ruby-core@marc-andre.ca>
+
+	* vm_insnhelper.c: Fix symbol leak with +send+ [Bug #10828]
+
+Sat Feb 14 08:53:50 2015  Shugo Maeda  <shugo@ruby-lang.org>
+
+	* class.c (method_entry_i, class_instance_method_list,
+	  rb_obj_singleton_methods): should not include methods of
+	  superclasses if recur is false. [ruby-dev:48854] [Bug #10826]
+
+Fri Feb 13 13:59:56 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* lib/mkmf.rb (try_cppflags, try_cflags, try_ldflags): get rid of
+	  interference by modifying global variables in have_devel? method.
+	  [ruby-core:67962] [Bug #10821]
+
+Fri Feb 13 03:13:05 2015  Scott Francis  <scott.francis@shopify.com>
+
+	* thread_pthread.c (reserve_stack): fix intermittent SIGBUS on
+	  Linux, by reserving the stack virtual address space at process
+	  start up so that it will not clash with the heap space.
+	  [Fix GH-822]
+
 Fri Feb  6 12:05:13 2015  SHIBATA Hiroshi  <shibata.hiroshi@gmail.com>
 
 	* thread.c: Improve documentation for Thread#value
