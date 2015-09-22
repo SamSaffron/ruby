@@ -2801,6 +2801,9 @@ id2ref(VALUE obj, VALUE objid)
     if (!is_live_object(objspace, ptr)) {
 	rb_raise(rb_eRangeError, "%p is recycled object", p0);
     }
+    if (RBASIC(ptr)->klass == 0) {
+	rb_raise(rb_eRangeError, "%p is internal object", p0);
+    }
     return (VALUE)ptr;
 }
 
